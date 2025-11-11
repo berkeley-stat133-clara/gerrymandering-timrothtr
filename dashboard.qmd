@@ -1,5 +1,123 @@
 ---
-title: Dashboard
+title: "California Gerrymandering Dashboard"
 format: dashboard
 ---
+
+
+```{r}
+#| echo: false
+library(tidyverse)
+library(sf)
+library(scales)
+library(patchwork)
+library(DT)
+district_2024 <- read_csv("data/district_results_2024.csv")
+district_ab604 <- read_csv("data/district_results_ab604.csv")
+metrics <- read_csv("data/metrics_summary.csv")
+
+sr_geo <- st_read("data/shapefiles/srprecinct_cleaned.shp", quiet = TRUE)
+ab604_shp <- st_read("data/shapefiles/ab604_cleaned.shp", quiet = TRUE)
+
+district_2024 <- district_2024 |> mutate(district = as.numeric(district))
+district_ab604 <- district_ab604 |> mutate(DISTRICT = as.numeric(DISTRICT))
+ab604_shp <- ab604_shp |> mutate(DISTRICT = as.numeric(DISTRICT))
+
+ab604_shp <- ab604_shp |>
+  left_join(district_ab604, by = "DISTRICT", relationship = "many-to-one")
+sr_geo <- sr_geo |> left_join(district_2024, by = c("addist" = "district"))
+ab604_shp <- ab604_shp |> left_join(district_ab604, by = "DISTRICT", relationship = "many-to-one")
+
+sr_geo <- sr_geo |> rename(dem_share = dem_share)
+ab604_shp <- ab604_shp |> mutate(dem_share = coalesce(dem_share.x, dem_share.y))
+```
+## Row 
+
+### Column {width=50%}
+
+**2024 Congressional Districts**
+```{r}
+# maps side by side
+map_2024 <- ggplot(sr_geo) +
+  geom_sf(aes(fill = dem_share), color = NA) +
+  scale_fill_viridis_c(name = "Democratic Vote Share", limits = c(0, 1)) +
+  labs(title = "2024 Congressional Districts") +
+  theme_minimal()
+map_2024
+```
+### Column {width=50%}
+
+**Proposed AB604 Districts**
+```{r}
+map_ab604 <- ggplot(ab604_shp) +
+  geom_sf(aes(fill = dem_share), color = NA) +
+  scale_fill_viridis_c(name = "Democratic Vote Share", limits = c(0, 1)) +
+  labs(title = "Proposed AB604 Districts") +
+  theme_minimal()
+map_ab604
+```
+
+## Row 
+
+### Column {width = 50%}
+```{r}
+hist_2024 <- ggplot(district_2024, aes(x = dem_share)) +
+  geom_histogram(bins = 20, fill = "#2E74C0", alpha = 0.8, color = "white") +
+  labs(
+    title = "2024: Distribution of Democratic Vote Share",
+    x = "Democratic Vote Share",
+    y = "Number of Districts"
+  ) +
+  theme_minimal()
+hist_2024
+```
+### Column {width=50%}
+```{r}
+hist_ab604 <- ggplot(district_ab604, aes(x = dem_share)) +
+  geom_histogram(bins = 20, fill = "#1B9E77", alpha = 0.8, color = "white") +
+  labs(
+    title = "AB604: Distribution of Democratic Vote Share",
+    x = "Democratic Vote Share",
+    y = "Number of Districts"
+  ) +
+  theme_minimal()
+hist_ab604
+```
+
+## Row
+
+### Column {width = 50%}
+
+**Summary Metrics (Mean-Median Differneces and Efficiency Gaps)**
+```{r}
+metrics_clean <- metrics |>
+  rename(
+    "Map Version" = map_version,
+    "Mean–Median Difference" = mean_median_diff,
+    "Efficiency Gap" = efficiency_gap,
+    "Proportion of Democratic Wins" = prop_dem_wins
+  )
+
+datatable(
+  metrics_clean,
+  rownames = FALSE,
+  options = list(
+    pageLength = 5,
+    dom = 't',  # removes search bar and pagination for simplicity
+    columnDefs = list(list(className = 'dt-center', targets = "_all"))
+  )
+)
+```
+
+### Column {width = 50%}
+
+**Summary**
+```{r}
+cat(  
+"Under the 2024 district map, Democrats won about 81% of seats with 
+a small Republican bias (EG ≈ 0.055). Under the proposed AB604 map, 
+the efficiency gap flips slightly in favor of Democrats (EG ≈ –0.011),  
+suggesting the redistricting modestly reduces Republican advantage 
+while keeping overall seat proportions stable.")
+```
+
 
