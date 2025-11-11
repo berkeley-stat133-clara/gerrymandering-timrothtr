@@ -1,6 +1,6 @@
 ---
 title: Gerrymandering Metrics
-format: typst
+format: html
 ---
 
 ### 2024 Election Results and the 2024 District Map
@@ -10,8 +10,6 @@ library(tidyverse)
 library(scales)
 precinct_long <- read_csv("data/precinct_clean_long.csv")
 
-
-# Filter to Congressional races only 
 congress <- precinct_long |>
   filter(race_type == "Congress") |>
   group_by(district, candidate_party) |>
@@ -23,7 +21,6 @@ congress <- precinct_long |>
   ) |>
   filter(total > 0)  # exclude empty districts
 
-# Mean–Median Difference
 mean_share <- mean(congress$dem_share, na.rm = TRUE)
 median_share <- median(congress$dem_share, na.rm = TRUE)
 mm_diff <- mean_share - median_share
@@ -32,8 +29,6 @@ cat("Mean Democratic vote share:", round(mean_share, 3), "\n")
 cat("Median Democratic vote share:", round(median_share, 3), "\n")
 cat("Mean–Median Difference:", round(mm_diff, 3), "\n")
 
-# Efficiency Gap
-# Define wasted votes
 congress <- congress |>
   mutate(
     dem_wasted = if_else(DEM > REP, DEM - (total / 2), DEM),
@@ -48,7 +43,6 @@ efficiency_gap <- (total_rep_wasted - total_dem_wasted) / total_votes
 
 cat("Efficiency Gap:", round(efficiency_gap, 3), "\n")
 
-# Visualization of Democratic vote shares
 ggplot(congress, aes(x = dem_share)) +
   geom_histogram(bins = 20, fill = "#2E74C0", color = "white", alpha = 0.85) +
   geom_vline(xintercept = mean_share, linetype = "dashed", color = "red", linewidth = 0.8) +
@@ -77,7 +71,6 @@ votes_sr <- read_csv("data/srprecinct_votes_cleaned.csv")
 ```
 
 ```{r}
-# Step 1: Create total DEM and REP votes across all races (convert to numeric first)
 votes_sr <- votes_sr |>
   mutate(across(matches("dem|rep", ignore.case = TRUE), ~ suppressWarnings(as.numeric(.)))) |>
   mutate(
@@ -86,22 +79,17 @@ votes_sr <- votes_sr |>
     total = DEM + REP
   )
 
-# Step 2: Ensure valid geometry and matching CRS
 sr_geo <- st_make_valid(sr_geo) |> st_transform(3310)
 ab604_shp <- st_make_valid(ab604_shp) |> st_transform(3310)
 
-# Step 3: Attach the total DEM/REP vote data to the SR precinct geometry
-# (we join the votes_sr table to sr_geo by precinct key — likely "srprec" or "srprec_key")
 sr_geo <- sr_geo |>
   left_join(votes_sr, by = "srprec")   # check the column name in votes_sr (srprec or srprec_key)
 
-# Step 4: Join to new AB604 districts
 votes_ab604 <- st_join(sr_geo, ab604_shp, join = st_intersects, left = TRUE)
 
 ```
 
 ```{r}
-# Step 5: Aggregate by district
 district_results_ab604 <- votes_ab604 |>
   st_drop_geometry() |>
   group_by(DISTRICT) |>
@@ -115,7 +103,7 @@ district_results_ab604 <- votes_ab604 |>
     dem_share = DEM / (DEM + REP)
   )
 
-# Step 6: Compute metrics
+
 mm_diff_ab604 <- mean(district_results_ab604$dem_share, na.rm = TRUE) -
                  median(district_results_ab604$dem_share, na.rm = TRUE)
 
@@ -129,14 +117,11 @@ eff_gap_ab604 <- (sum(district_results_ab604$dem_wasted) -
                   sum(district_results_ab604$rep_wasted)) /
                   sum(district_results_ab604$total)
 
-# Step 7: Print results
 cat("Mean–Median Difference (AB604): ", round(mm_diff_ab604, 3), "\n")
 cat("Efficiency Gap (AB604): ", round(eff_gap_ab604, 3), "\n")
 ```
 
 ```{r}
-# Visualization: Democratic Vote Share Distribution (AB604 Map)
-
 ggplot(district_results_ab604, aes(x = dem_share)) +
   geom_histogram(bins = 20, fill = "#2E74C0", color = "white", alpha = 0.85) +
   geom_vline(xintercept = mean(district_results_ab604$dem_share, na.rm = TRUE),
@@ -154,6 +139,22 @@ ggplot(district_results_ab604, aes(x = dem_share)) +
     y = "Number of Districts"
   ) +
   theme_minimal(base_size = 13)
+```
+```{r}
+
+write_csv(congress, "data/district_results_2024.csv")
+write_csv(district_results_ab604, "data/district_results_ab604.csv")
+
+metrics_summary <- tibble(
+  map_version = c("2024 Actual", "AB604 Proposed"),
+  mean_median_diff = c(mm_diff, mm_diff_ab604),
+  efficiency_gap = c(efficiency_gap, eff_gap_ab604),
+  prop_dem_wins = c(
+    mean(congress$dem_share > 0.5, na.rm = TRUE),
+    mean(district_results_ab604$dem_share > 0.5, na.rm = TRUE)
+  )
+)
+write_csv(metrics_summary, "data/metrics_summary.csv")
 ```
 
 

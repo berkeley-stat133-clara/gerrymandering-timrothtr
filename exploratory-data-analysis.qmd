@@ -1,6 +1,6 @@
 ---
 title: Exploratory Data Analysis
-format: typst
+format: html
 ---
 ```{r}
 #| echo: False
@@ -75,7 +75,7 @@ ggplot(race_margins, aes(x = pct_margin)) +
     panel.grid.minor = element_blank()
   )
 ```
-
+Leticia Castillo (REP) vs. CLarissa Cervantes (DEM), won by Castillo by just 0.003 was the closest race for Assembly, while Mike Cargile (REP) vs. Norma J. Torres (DEM), won by Cargile by ~0.007 was the closest race for Congress
 
 ### Question 2
 
@@ -86,19 +86,16 @@ Which party dominated across districts and and were their wins evenly distribute
 ```{r}
 #| echo: false
 
-# Identify winner for each district
 winners <- district_results |>
   group_by(race_type, district) |>
   slice_max(total_votes, n = 1, with_ties = FALSE) |>
   ungroup()
 
-# Summarize wins by party and race type
 party_wins <- winners |>
   count(race_type, candidate_party) |>
   group_by(race_type) |>
   mutate(pct = n / sum(n))
 
-# Plot: share of wins by party
 ggplot(party_wins, aes(x = race_type, y = pct, fill = candidate_party)) +
   geom_col(position = "stack", color = "white") +
   scale_y_continuous(labels = percent_format()) +
@@ -111,7 +108,7 @@ ggplot(party_wins, aes(x = race_type, y = pct, fill = candidate_party)) +
   ) +
   theme_minimal(base_size = 13)
 ```
-
+The Democratic party clearly dominated in both Congress and Assembly, although Republicans had a slightly higher share of Districts in the Assembly race. 
 
 ### Question 3
 
@@ -122,16 +119,13 @@ Are turnout rates correlated with competitiveness?
 ```{r}
 #| echo: false
 
-# Aggregate turnout by district
 turnout_by_district <- precinct_long |>
   group_by(race_type, district) |>
   summarise(turnout = mean(turnout_rate, na.rm = TRUE), .groups = "drop")
 
-# Merge with race margins
 race_margins_turnout <- race_margins |>
   left_join(turnout_by_district, by = c("race_type", "district"))
 
-# Plot relationship
 ggplot(race_margins_turnout, aes(x = pct_margin, y = turnout)) +
   geom_point(alpha = 0.6, color = "steelblue") +
   geom_smooth(method = "lm", se = FALSE, color = "darkred") +
@@ -144,5 +138,5 @@ ggplot(race_margins_turnout, aes(x = pct_margin, y = turnout)) +
   ) +
   theme_minimal(base_size = 13)
 ```
-
+We see that Vote margins are lower when turnout is higher, suggesting closer races when people are participating in voting. 
 
