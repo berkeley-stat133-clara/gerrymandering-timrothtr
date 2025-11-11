@@ -3,3 +3,145 @@ title: Data Cleaning
 format: typst
 ---
 
+```{r}
+#| echo: false
+install.packages("janitor")
+library(tidyverse)
+library(janitor)
+```
+```{r}
+# Read in raw datasets
+precinct_raw <- read_csv("data/g24_sov_by_g24_svprec.csv") |> 
+  clean_names()
+
+candidates <- read_csv("data/g24-candidates-by-district.csv") |> 
+  clean_names()
+
+# Clean candidates table
+candidates <- candidates |>
+  mutate(
+    race_type = case_when(
+      str_detect(field, "ASS") ~ "Assembly",
+      str_detect(field, "CNG") ~ "Congress",
+      TRUE ~ "Other"
+    ),
+    candidate_party = case_when(
+      str_detect(contest, "DEM") ~ "DEM",
+      str_detect(contest, "REP") ~ "REP",
+      str_detect(contest, "AI")  ~ "AIP",
+      str_detect(contest, "GRN") ~ "GRN",
+      str_detect(contest, "LIB") ~ "LIB",
+      TRUE ~ "Other"
+    ),
+    contest = str_to_upper(contest),
+    district = as.numeric(district)
+  ) |>
+  select(contest, field, district_type, district, name, candidate_party, race_type)
+
+# Clean precinct dataset
+precinct <- precinct_raw |>
+  mutate(
+    addist = as.numeric(addist),
+    totvote = as.numeric(totvote),
+    totreg = as.numeric(totreg),
+    turnout_rate = if_else(totreg > 0, totvote / totreg, NA_real_),
+    turnout_rate = if_else(turnout_rate > 1, NA_real_, turnout_rate)
+  )
+
+# Reshape precinct data to long format
+precinct_long <- precinct |>
+  pivot_longer(
+    cols = matches("(ass|cng).*\\d{2}$", ignore.case = TRUE),
+    names_to = "contest",
+    values_to = "votes"
+  ) |>
+  mutate(
+    contest = str_to_upper(contest),
+    votes = suppressWarnings(as.numeric(votes)),
+    race_type = case_when(
+      str_detect(contest, "ASS") ~ "Assembly",
+      str_detect(contest, "CNG") ~ "Congress",
+      TRUE ~ "Other"
+    ),
+    district = addist
+  )
+
+# Fix contest codes to match candidate file (e.g., ASS01DEM01)
+precinct_long <- precinct_long |>
+  mutate(
+    district_str = str_pad(district, 2, pad = "0"),
+    contest = case_when(
+      str_detect(contest, "ASS") ~ paste0("ASS", district_str, str_sub(contest, 4)),
+      str_detect(contest, "CNG") ~ paste0("CNG", district_str, str_sub(contest, 4)),
+      TRUE ~ contest
+    )
+  )
+
+# Join with candidates
+precinct_long <- precinct_long |>
+  left_join(candidates, by = c("contest", "district", "race_type")) |>
+  rename(candidate_name = name)
+
+# Check join results
+precinct_long |> count(race_type, !is.na(candidate_name))
+
+# Preview matched rows
+precinct_long |>
+  filter(!is.na(candidate_name)) |>
+  select(race_type, contest, district, candidate_name, candidate_party, votes) |>
+  head(15)
+
+# Save cleaned wide and long datasets
+write_csv(precinct, "data/precinct_clean_wide.csv")
+write_csv(precinct_long, "data/precinct_clean_long.csv")
+```
+```{r}
+precinct_long |>
+  select(race_code, race_type, candidate_name, party, district_num, votes) |>
+  filter(!is.na(candidate_name)) |>
+  head(10)
+```
+
+```{r}
+library(sf)
+# Load SR precinct-level voting data
+votes_sr <- read.csv("data/shapefiles/state_g24_sov_data_by_g24_srprec.csv") |> 
+  clean_names()
+
+# Load SR precinct shapefile
+sr_shp <- st_read("data/shapefiles/srprec_state_g24_v01_shp/srprec_state_g24_v01_shp.shp")
+
+# Load proposed AB 604 district shapefile
+ab604_shp <- st_read("data/shapefiles/AB604/AB604.shp")
+
+# Transform to same projection and fix geometry issues
+sr_shp <- sr_shp |>
+  st_transform(3310) |>
+  st_set_precision(1) |>
+  st_make_valid() |>
+  st_collection_extract("POLYGON")
+
+ab604_shp <- ab604_shp |>
+  st_transform(3310) |>
+  st_make_valid()
+
+# Check column names for join key
+names(votes_sr)
+
+# Join votes to SR precinct geometry
+sr_geo <- sr_shp |>
+  left_join(votes_sr, by = c("SRPREC" = "srprec")) |>
+  clean_names() |> 
+  select(!matches("\\.1$"))  
+
+# Save cleaned versions
+st_write(sr_geo, "data/shapefiles/srprecinct_cleaned.shp", delete_dsn = TRUE)
+st_write(ab604_shp, "data/shapefiles/ab604_cleaned.shp", delete_dsn = TRUE)
+write_csv(votes_sr, "data/srprecinct_votes_cleaned.csv")
+```
+
+
+
+
+
+

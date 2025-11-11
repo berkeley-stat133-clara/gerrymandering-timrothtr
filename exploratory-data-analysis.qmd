@@ -2,27 +2,147 @@
 title: Exploratory Data Analysis
 format: typst
 ---
+```{r}
+#| echo: False
+
+library(tidyverse)
+library(janitor)
+library(ggplot2)
+
+precinct_long <- read_csv("data/precinct_clean_long.csv")
+precinct_wide <- read_csv("data/precinct_clean_wide.csv")
+```
 
 ### Question 1
 
-Put your question here.
+Which Races were the closest and which ones were blowouts?
+```{r}
+#| echo: false
+district_results <- precinct_long |>
+  filter(!is.na(candidate_name), race_type %in% c("Assembly", "Congress")) |>
+  group_by(race_type, district, candidate_name, candidate_party) |>
+  summarise(total_votes = sum(votes, na.rm = TRUE), .groups = "drop")
+
+race_margins <- district_results |>
+  group_by(race_type, district) |>
+  arrange(desc(total_votes), .by_group = TRUE) |>
+  mutate(rank = row_number()) |>
+  slice_head(n = 2) |>  # keep only top 2 per race
+  summarise(
+    margin = abs(diff(total_votes)),
+    pct_margin = margin / sum(total_votes),
+    winner = first(candidate_name),
+    winner_party = first(candidate_party),
+    loser = last(candidate_name),
+    loser_party = last(candidate_party),
+    total_votes = sum(total_votes),
+    .groups = "drop"
+  ) |>
+  arrange(pct_margin)
+
+race_margins |> 
+  slice_head(n = 10) |>
+  select(race_type, district, winner, winner_party, loser, loser_party, pct_margin, total_votes)
+```
 
 ### Answer 1
+```{r}
+#| echo: false
+library(scales)
 
-Put your answer here.
+race_margins |> 
+  slice_head(n = 10) |>
+  select(race_type, district, winner, winner_party, loser, loser_party, pct_margin, total_votes)
+
+ggplot(race_margins, aes(x = pct_margin)) +
+  geom_histogram(bins = 25, fill = "steelblue", color = "white", alpha = 0.85) +
+  geom_vline(xintercept = c(0.05, 0.10), linetype = "dashed", color = "red", linewidth = 0.8) +
+  scale_x_continuous(
+    labels = percent_format(accuracy = 1),
+    limits = c(0, 1),
+    expand = c(0, 0)
+  ) +
+  labs(
+    title = "Distribution of Vote Margins by District (Assembly + Congress)",
+    subtitle = "Vertical dashed lines mark 5% and 10% thresholds for competitive races",
+    x = "Vote Margin (Share of Total Votes)",
+    y = "Number of District Races"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "gray30"),
+    panel.grid.minor = element_blank()
+  )
+```
+
 
 ### Question 2
 
-Put your question here.
+Which party dominated across districts and and were their wins evenly distributed?
 
 ### Answer 2
 
-Put your answer here.
+```{r}
+#| echo: false
+
+# Identify winner for each district
+winners <- district_results |>
+  group_by(race_type, district) |>
+  slice_max(total_votes, n = 1, with_ties = FALSE) |>
+  ungroup()
+
+# Summarize wins by party and race type
+party_wins <- winners |>
+  count(race_type, candidate_party) |>
+  group_by(race_type) |>
+  mutate(pct = n / sum(n))
+
+# Plot: share of wins by party
+ggplot(party_wins, aes(x = race_type, y = pct, fill = candidate_party)) +
+  geom_col(position = "stack", color = "white") +
+  scale_y_continuous(labels = percent_format()) +
+  scale_fill_manual(values = c("DEM" = "#2E74C0", "REP" = "#CB454A", "AIP" = "gray60", "Other" = "gray70")) +
+  labs(
+    title = "Party Distribution of District Wins (Assembly + Congress)",
+    x = "Race Type",
+    y = "Share of Districts Won",
+    fill = "Party"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
 
 ### Question 3
 
-Put your question here.
+Are turnout rates correlated with competitiveness?
 
 ### Answer 3
 
-Put your answer here.
+```{r}
+#| echo: false
+
+# Aggregate turnout by district
+turnout_by_district <- precinct_long |>
+  group_by(race_type, district) |>
+  summarise(turnout = mean(turnout_rate, na.rm = TRUE), .groups = "drop")
+
+# Merge with race margins
+race_margins_turnout <- race_margins |>
+  left_join(turnout_by_district, by = c("race_type", "district"))
+
+# Plot relationship
+ggplot(race_margins_turnout, aes(x = pct_margin, y = turnout)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_smooth(method = "lm", se = FALSE, color = "darkred") +
+  scale_x_continuous(labels = percent_format()) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(
+    title = "Relationship Between Race Competitiveness and Voter Turnout",
+    x = "Vote Margin (Proportion of Total Votes)",
+    y = "Average Turnout Rate"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+
